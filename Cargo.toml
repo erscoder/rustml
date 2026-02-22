@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/rustml-scipy",
+    # "crates/rustml-transformers",
+    # "crates/rustml-chain",
+    # "crates/rustml-boost",
+    # "crates/rustml-embed",
+    # "crates/rustml-viz",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/kikerub/rustml"
+
+[workspace.dependencies]
+ndarray = "0.16"
+ndarray-rand = "0.15"
+ndarray-linalg = "0.17"
+rand = "0.9"
+rayon = "1.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+approx = "0.5"
