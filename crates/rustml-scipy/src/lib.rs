@@ -22,9 +22,9 @@
 //! println!("mean={mean:.3}, std={std:.3}, t={t_stat:.3}, p={p_value:.3}");
 //! ```
 
+pub mod linalg;
 pub mod stats;
 
 // Coming soon:
-// pub mod linalg;
 // pub mod optimize;
 // pub mod signal;
