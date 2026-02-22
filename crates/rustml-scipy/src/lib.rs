@@ -23,8 +23,8 @@
 //! ```
 
 pub mod linalg;
+pub mod optimize;
 pub mod stats;
 
 // Coming soon:
-// pub mod optimize;
 // pub mod signal;
