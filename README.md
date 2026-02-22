@@ -1,5 +1,10 @@
 # 🦀 RustML — Python ML Libraries, Rewritten in Rust
 
+[![CI](https://github.com/erscoder/rustml/actions/workflows/ci.yml/badge.svg)](https://github.com/erscoder/rustml/actions/workflows/ci.yml)
+[![Clippy](https://img.shields.io/badge/clippy-clean-brightgreen)](https://github.com/erscoder/rustml/actions)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20or%20Apache--2.0-blue)](LICENSE)
+[![Rust Version](https://img.shields.io/badge/rust-1.80%2B-blue)](https://rustup.rs)
+
 > Python had its rise because of its learning curve when code was 100% human-written. With RAM as the bottleneck for local AI and servers — and memory becoming the most expensive component — Rust will have its ATH in the coming years.
 
 **The mission:** Port the most important Python ML/AI libraries to Rust, one by one. Open source. Community-driven.

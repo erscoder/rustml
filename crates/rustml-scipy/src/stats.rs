@@ -653,7 +653,7 @@ mod tests {
         // Test at boundaries
         let result = regularized_incomplete_beta(1.0, 1.0, 0.0);
         assert!(result.abs() < 1e-10);
-        
+
         let result = regularized_incomplete_beta(1.0, 1.0, 1.0);
         assert!((result - 1.0).abs() < 1e-10);
     }
