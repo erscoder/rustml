@@ -191,6 +191,259 @@ pub fn ttest_ind(x: &[f64], y: &[f64]) -> (f64, f64) {
     (t, p)
 }
 
+// ─── Additional Hypothesis Tests (RUST-03) ────────────────────────
+
+/// Chi-squared test for independence.
+///
+/// Returns `(chi2_statistic, p_value, dof)`. Equivalent to `scipy.stats.chi2_contingency`.
+pub fn chi2_test(observed: &[&[f64]]) -> (f64, f64, usize) {
+    let rows = observed.len();
+    let cols = observed[0].len();
+
+    if rows < 2 || cols < 2 {
+        return (f64::NAN, f64::NAN, 0);
+    }
+
+    // Calculate row and column totals
+    let row_totals: Vec<f64> = (0..rows).map(|i| observed[i].iter().sum()).collect();
+    let col_totals: Vec<f64> = (0..cols)
+        .map(|j| (0..rows).map(|i| observed[i][j]).sum())
+        .collect();
+    let grand_total: f64 = row_totals.iter().sum();
+
+    if grand_total == 0.0 {
+        return (f64::NAN, f64::NAN, 0);
+    }
+
+    // Calculate chi-squared statistic
+    let mut chi2 = 0.0;
+    for i in 0..rows {
+        for j in 0..cols {
+            let expected = row_totals[i] * col_totals[j] / grand_total;
+            if expected > 0.0 {
+                let diff = observed[i][j] - expected;
+                chi2 += diff * diff / expected;
+            }
+        }
+    }
+
+    let dof = (rows - 1) * (cols - 1);
+    let p = 1.0 - chi2_cdf(chi2, dof as f64);
+
+    (chi2, p, dof)
+}
+
+/// Chi-squared CDF using gamma function approximation.
+fn chi2_cdf(x: f64, k: f64) -> f64 {
+    if x <= 0.0 {
+        return 0.0;
+    }
+    regularized_incomplete_beta(k / 2.0, 0.5, x / (x + k))
+}
+
+/// Mann-Whitney U test (non-parametric).
+///
+/// Returns `(u_statistic, p_value)`. Equivalent to `scipy.stats.mannwhitneyu`.
+pub fn mannwhitneyu(x: &[f64], y: &[f64]) -> (f64, f64) {
+    if x.is_empty() || y.is_empty() {
+        return (f64::NAN, f64::NAN);
+    }
+
+    let nx = x.len() as f64;
+    let ny = y.len() as f64;
+
+    // Combine and rank
+    let mut combined: Vec<(f64, usize)> = Vec::with_capacity(x.len() + y.len());
+    for &v in x {
+        combined.push((v, 0)); // 0 = from x
+    }
+    for &v in y {
+        combined.push((v, 1)); // 1 = from y
+    }
+    combined.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+    // Assign ranks (handle ties by averaging)
+    let mut ranks: Vec<f64> = vec![0.0; combined.len()];
+    let mut i = 0;
+    while i < combined.len() {
+        let mut j = i + 1;
+        while j < combined.len() && (combined[i].0 - combined[j].0).abs() < f64::EPSILON {
+            j += 1;
+        }
+        let rank = (i + j + 1) as f64 / 2.0;
+        for item in ranks.iter_mut().take(j).skip(i) {
+            *item = rank;
+        }
+        i = j;
+    }
+
+    // Calculate U statistics
+    let mut u1 = 0.0;
+    let mut u2 = 0.0;
+    for (idx, &group) in combined.iter().enumerate() {
+        if group.1 == 0 {
+            u1 += ranks[idx];
+        } else {
+            u2 += ranks[idx];
+        }
+    }
+
+    let u1_stat = u1 - nx * (nx + 1.0) / 2.0;
+    let u2_stat = u2 - ny * (ny + 1.0) / 2.0;
+    let u_min = u1_stat.min(u2_stat);
+
+    // Normal approximation for p-value
+    let mu = nx * ny / 2.0;
+    let sigma = (nx * ny * (nx + ny + 1.0) / 12.0).sqrt();
+    let z = (u_min - mu) / sigma;
+    let p = 2.0 * norm_cdf(-z.abs());
+
+    (u_min, p)
+}
+
+/// Kolmogorov-Smirnov two-sample test.
+///
+/// Returns `(ks_statistic, p_value)`. Equivalent to `scipy.stats.ks_2samp`.
+pub fn ks_2samp(x: &[f64], y: &[f64]) -> (f64, f64) {
+    if x.is_empty() || y.is_empty() {
+        return (f64::NAN, f64::NAN);
+    }
+
+    let mut x_sorted = x.to_vec();
+    let mut y_sorted = y.to_vec();
+    x_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    y_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+    let nx = x.len() as f64;
+    let ny = y.len() as f64;
+    let mut d_max: f64 = 0.0;
+
+    let mut ix = 0;
+    let mut iy = 0;
+    while ix < x.len() || iy < y.len() {
+        let (xv, yv) = (x_sorted.get(ix).copied(), y_sorted.get(iy).copied());
+
+        let next_x = xv.unwrap_or(f64::INFINITY);
+        let next_y = yv.unwrap_or(f64::INFINITY);
+
+        let cdf_x = ix as f64 / nx;
+        let cdf_y = iy as f64 / ny;
+
+        if next_x < next_y {
+            ix += 1;
+        } else if next_y < next_x {
+            iy += 1;
+        } else {
+            ix += 1;
+            iy += 1;
+        }
+
+        let cdf_x_new = ix as f64 / nx;
+        let cdf_y_new = iy as f64 / ny;
+
+        d_max = d_max.max((cdf_x_new - cdf_y).abs());
+        d_max = d_max.max((cdf_x - cdf_y_new).abs());
+    }
+
+    // Approximate p-value
+    let n = nx * ny / (nx + ny);
+    let lambda = d_max * (n.sqrt() + 0.12 + 0.11 / n.sqrt());
+    let p = 2.0 * (-2.0 * lambda * lambda).exp();
+
+    (d_max, p.min(1.0))
+}
+
+/// Z-score normalization.
+///
+/// Returns a vector of z-scores: (x - mean) / std.
+/// Equivalent to `scipy.stats.zscore`.
+pub fn zscore(data: &[f64]) -> Vec<f64> {
+    let m = mean(data);
+    let s = std(data);
+    if s == 0.0 {
+        return vec![f64::NAN; data.len()];
+    }
+    data.iter().map(|x| (x - m) / s).collect()
+}
+
+/// Percentile calculation (equivalent to numpy.percentile).
+///
+/// # Arguments
+/// * `data` - Input data
+/// * `q` - Percentile(s) to compute (0-100)
+///
+/// # Example
+/// ```
+/// use rustml_scipy::stats::percentile;
+/// let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+/// assert!((percentile(&data, 50.0) - 3.0).abs() < 0.01);
+/// ```
+pub fn percentile(data: &[f64], q: f64) -> f64 {
+    quantile(data, q / 100.0)
+}
+
+/// Quantile calculation (equivalent to numpy.quantile).
+///
+/// Returns the q-th quantile of data.
+/// For q=0.5, returns the median.
+pub fn quantile(data: &[f64], q: f64) -> f64 {
+    if data.is_empty() {
+        return f64::NAN;
+    }
+    if q <= 0.0 {
+        return data.iter().cloned().fold(f64::NAN, f64::min);
+    }
+    if q >= 1.0 {
+        return data.iter().cloned().fold(f64::NAN, f64::max);
+    }
+
+    let mut sorted = data.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+    let pos = q * (sorted.len() - 1) as f64;
+    let idx = pos.floor() as usize;
+    let frac = pos - idx as f64;
+
+    if idx + 1 < sorted.len() {
+        sorted[idx] * (1.0 - frac) + sorted[idx + 1] * frac
+    } else {
+        sorted[idx]
+    }
+}
+
+/// Summary statistics (equivalent to scipy.stats.describe).
+///
+/// Returns a tuple: (count, mean, std, min, q25, q50, q75, max, skewness, kurtosis)
+pub fn describe(data: &[f64]) -> (usize, f64, f64, f64, f64, f64, f64, f64, f64, f64) {
+    let n = data.len();
+    if n == 0 {
+        return (
+            0,
+            f64::NAN,
+            f64::NAN,
+            f64::NAN,
+            f64::NAN,
+            f64::NAN,
+            f64::NAN,
+            f64::NAN,
+            f64::NAN,
+            f64::NAN,
+        );
+    }
+
+    let m = mean(data);
+    let s = std(data);
+    let min = data.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let q25 = percentile(data, 25.0);
+    let q50 = percentile(data, 50.0);
+    let q75 = percentile(data, 75.0);
+    let sk = skew(data);
+    let kurt = kurtosis(data);
+
+    (n, m, s, min, q25, q50, q75, max, sk, kurt)
+}
+
 // ─── Distributions (internal helpers) ─────────────────────────────
 
 /// CDF of Student's t-distribution (approximation via regularized incomplete beta).
@@ -678,5 +931,117 @@ mod tests {
         let y = [5.0, 4.0, 3.0, 2.0, 1.0];
         let (r, _p) = pearsonr(&x, &y);
         assert!((r - (-1.0)).abs() < 0.01);
+    }
+
+    // === Tests for RUST-03 new functions ===
+
+    #[test]
+    fn test_zscore() {
+        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let z = zscore(&data);
+        // Mean should be ~0, std should be ~1
+        assert!((mean(&z)).abs() < 1e-10);
+        assert!((std(&z) - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_zscore_const() {
+        let data = vec![5.0, 5.0, 5.0];
+        let z = zscore(&data);
+        assert!(z.iter().all(|x| x.is_nan()));
+    }
+
+    #[test]
+    fn test_percentile() {
+        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        assert!((percentile(&data, 50.0) - 3.0).abs() < 0.01);
+        assert!((percentile(&data, 25.0) - 2.0).abs() < 0.01);
+        assert!((percentile(&data, 75.0) - 4.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_quantile() {
+        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        assert!((quantile(&data, 0.5) - 3.0).abs() < 0.01);
+        assert!((quantile(&data, 0.0) - 1.0).abs() < 0.01);
+        assert!((quantile(&data, 1.0) - 5.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_describe() {
+        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let (n, m, s, min, _q25, _q50, _q75, max, _sk, _kurt) = describe(&data);
+        assert_eq!(n, 5);
+        assert!((m - 3.0).abs() < 0.01);
+        assert!((s - 1.5811).abs() < 0.01);
+        assert!((min - 1.0).abs() < 0.01);
+        assert!((max - 5.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_describe_empty() {
+        let data: Vec<f64> = vec![];
+        let (n, m, s, min, _q25, _q50, _q75, max, _sk, _kurt) = describe(&data);
+        assert_eq!(n, 0);
+        assert!(m.is_nan());
+    }
+
+    #[test]
+    fn test_chi2_test() {
+        // 2x2 contingency table - create slice of slices
+        let row1 = [10.0, 20.0];
+        let row2 = [20.0, 10.0];
+        let observed: &[&[f64]] = &[&row1, &row2];
+        let (chi2, p, dof) = chi2_test(observed);
+        assert!(chi2 > 0.0);
+        assert!(p >= 0.0 && p <= 1.0);
+        assert_eq!(dof, 1);
+    }
+
+    #[test]
+    fn test_chi2_test_invalid() {
+        // Invalid table (1 row)
+        let row = [1.0, 2.0, 3.0];
+        let observed: &[&[f64]] = &[&row];
+        let (chi2, p, dof) = chi2_test(observed);
+        assert!(chi2.is_nan());
+        assert!(p.is_nan());
+        assert_eq!(dof, 0);
+    }
+
+    #[test]
+    fn test_mannwhitneyu() {
+        let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let y = vec![2.0, 3.0, 4.0, 5.0, 6.0];
+        let (u, p) = mannwhitneyu(&x, &y);
+        assert!(u >= 0.0);
+        assert!(p >= 0.0 && p <= 1.0);
+    }
+
+    #[test]
+    fn test_mannwhitneyu_empty() {
+        let x: Vec<f64> = vec![];
+        let y = vec![1.0, 2.0, 3.0];
+        let (u, p) = mannwhitneyu(&x, &y);
+        assert!(u.is_nan());
+        assert!(p.is_nan());
+    }
+
+    #[test]
+    fn test_ks_2samp() {
+        let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let y = vec![1.5, 2.5, 3.5, 4.5, 5.5];
+        let (d, p) = ks_2samp(&x, &y);
+        assert!(d >= 0.0 && d <= 1.0);
+        assert!(p >= 0.0 && p <= 1.0);
+    }
+
+    #[test]
+    fn test_ks_2samp_empty() {
+        let x: Vec<f64> = vec![];
+        let y = vec![1.0, 2.0, 3.0];
+        let (d, p) = ks_2samp(&x, &y);
+        assert!(d.is_nan());
+        assert!(p.is_nan());
     }
 }
